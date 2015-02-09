@@ -9,7 +9,7 @@ import java.nio.ByteOrder;
 /**
  * Created by crush on 12/17/2014.
  */
-public class Iff {
+public class Iff implements IffReader {
     private static final Logger logger = LoggerFactory.getLogger(Iff.class);
 
     private static final int ID_FORM = createChunkId("FORM");
