@@ -81,6 +81,14 @@ public final class Iff {
         this.stack.add(rootStack);
     }
 
+    public final String getFileName() {
+        return this.fileName;
+    }
+
+    public final int getStackDepth() {
+        return this.stackDepth;
+    }
+
     public final byte readByte() {
         if (!this.inChunk)
             throw new UnsupportedOperationException("Cannot read while not in a chunk.");
