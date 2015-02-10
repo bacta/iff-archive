@@ -28,7 +28,7 @@ public class IffTest {
     @Before
     public void before() {
         try {
-            RandomAccessFile file = new RandomAccessFile(resourcesPath + "human_male.iff", "r");
+            final RandomAccessFile file = new RandomAccessFile(resourcesPath + "human_male.iff", "r");
             testBytes = new byte[(int) file.length()];
             file.read(testBytes);
             file.close();
@@ -41,53 +41,66 @@ public class IffTest {
     }
 
     @Test
-    public void shouldReadDerivedFromTemplate() {
-        Iff iff = new Iff(testBytes);
-        iff.openForm(ID_SCOT);
-        iff.openForm(ID_DERV);
-        iff.openChunk(ID_XXXX);
+    public void shouldReadWithoutSpecifyingId() {
+        final Iff iff = new Iff("human_male.iff", testBytes);
+        iff.enterForm();
+            iff.enterForm();
+                iff.enterChunk();
+                    Assert.assertTrue("object/creature/player/shared_human_male.iff".equals(iff.readString()));
+                iff.exitChunk();
+            iff.exitForm();
+        iff.exitForm();
+    }
 
-        Assert.assertTrue("object/creature/player/shared_human_male.iff".equals(iff.readString()));
+    @Test
+    public void shouldReadDerivedFromTemplate() {
+        final Iff iff = new Iff("human_male.iff", testBytes);
+        iff.enterForm(ID_SCOT);
+            iff.enterForm(ID_DERV);
+                iff.enterChunk(ID_XXXX);
+                    Assert.assertTrue("object/creature/player/shared_human_male.iff".equals(iff.readString()));
+                iff.exitChunk(ID_XXXX);
+            iff.exitForm(ID_DERV);
+            iff.enterForm(ID_0012);
+                iff.enterChunk(ID_PCNT);
+                    Assert.assertEquals(0, iff.readInt());
+                iff.exitChunk(ID_PCNT);
+            iff.exitForm(ID_0012);
+        iff.exitForm(ID_SCOT);
     }
 
     @Test
     public void shouldReadAllChunksWithoutException() {
-        Iff iff = new Iff(testBytes);
-        iff.openForm(ID_SCOT);
-        iff.openForm(ID_DERV);
-        iff.openChunk(ID_XXXX);
-        iff.closeChunk();
-        iff.closeChunk();
-        iff.openForm(ID_0012);
-        iff.openChunk(ID_PCNT);
-        iff.closeChunk();
-        iff.closeChunk();
-        iff.openForm(ID_STOT);
-        iff.openForm(ID_DERV);
-        iff.openChunk(ID_XXXX);
-        iff.closeChunk();
-        iff.closeChunk();
-        iff.openForm(ID_0007);
-        iff.openChunk(ID_PCNT);
-        iff.closeChunk();
-        iff.closeChunk();
-        iff.openForm(ID_SHOT);
-        iff.openForm(ID_DERV);
-        iff.openChunk(ID_XXXX);
-        iff.closeChunk();
-        iff.closeChunk();
-        iff.openForm(ID_0007);
-        iff.openChunk(ID_PCNT);
-        iff.closeChunk();
-    }
-
-    @Test
-    public void shouldSelectNextChunk() {
-        Iff iff = new Iff(testBytes);
-        iff.nextForm(); //ID_SCOT
-        iff.nextForm(); //ID_DERV
-        iff.nextChunk(); //ID_XXXX
-
-        Assert.assertTrue("object/creature/player/shared_human_male.iff".equals(iff.readString()));
+        final Iff iff = new Iff("human_male.iff", testBytes);
+        iff.enterForm(ID_SCOT);
+            iff.enterForm(ID_DERV);
+                iff.enterChunk(ID_XXXX);
+                iff.exitChunk(ID_XXXX);
+            iff.exitForm(ID_DERV);
+            iff.enterForm(ID_0012);
+                iff.enterChunk(ID_PCNT);
+                iff.exitChunk(ID_PCNT);
+            iff.exitForm(ID_0012);
+            iff.enterForm(ID_STOT);
+                iff.enterForm(ID_DERV);
+                    iff.enterChunk(ID_XXXX);
+                    iff.exitChunk(ID_XXXX);
+                iff.exitForm(ID_DERV);
+                iff.enterForm(ID_0007);
+                    iff.enterChunk(ID_PCNT);
+                    iff.exitChunk(ID_PCNT);
+                iff.exitForm(ID_0007);
+                iff.enterForm(ID_SHOT);
+                    iff.enterForm(ID_DERV);
+                        iff.enterChunk(ID_XXXX);
+                        iff.exitChunk(ID_XXXX);
+                    iff.exitForm(ID_DERV);
+                    iff.enterForm(ID_0007);
+                        iff.enterChunk(ID_PCNT);
+                        iff.exitChunk(ID_PCNT);
+                    iff.exitForm(ID_0007);
+                iff.exitForm(ID_SHOT);
+            iff.exitForm(ID_STOT);
+        iff.exitForm(ID_SCOT);
     }
 }
