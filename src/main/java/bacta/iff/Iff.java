@@ -89,6 +89,10 @@ public final class Iff {
         return this.stackDepth;
     }
 
+    public final boolean readBoolean() {
+        return readByte() == 1;
+    }
+
     public final byte readByte() {
         if (!this.inChunk)
             throw new UnsupportedOperationException("Cannot read while not in a chunk.");
@@ -327,6 +331,34 @@ public final class Iff {
         prevStack.used += thisStack.length + GROUP_HEADER_SIZE;
         --this.stackDepth;
         this.inChunk = false;
+    }
+
+    public void insertChunkData(final boolean data) {
+        throw new UnsupportedOperationException("Not implemented.");
+    }
+
+    public void insertChunkData(final byte data) {
+        throw new UnsupportedOperationException("Not implemented.");
+    }
+
+    public void insertChunkData(final short data) {
+        throw new UnsupportedOperationException("Not implemented.");
+    }
+
+    public void insertChunkData(final int data) {
+        throw new UnsupportedOperationException("Not implemented.");
+    }
+
+    public void insertChunkData(final long data) {
+        throw new UnsupportedOperationException("Not implemented.");
+    }
+
+    public void insertChunkData(final float data) {
+        throw new UnsupportedOperationException("Not implemented.");
+    }
+
+    public void insertChunkData(final String data) {
+        throw new UnsupportedOperationException("Not implemented.");
     }
 
     public final int getBlockName(int depth) {
