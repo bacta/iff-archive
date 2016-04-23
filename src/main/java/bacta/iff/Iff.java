@@ -417,6 +417,10 @@ public final class Iff {
         return lengthDiv;
     }
 
+    public final int getChunkLengthLeft() {
+        return getChunkLengthLeft(1);
+    }
+
     public final int getChunkLengthLeft(int elementSize) {
         if (!this.inChunk)
             throw new UnsupportedOperationException("Not in a chunk.");
