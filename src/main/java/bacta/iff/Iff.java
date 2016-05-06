@@ -216,11 +216,23 @@ public final class Iff {
     }
 
     public final void enterChunk() {
-        enterChunk(0);
+        enterChunk(0, false, false);
     }
 
     public final void enterChunk(final int chunkId) {
-        if (chunkId != 0) {
+        enterChunk(chunkId, true, false);
+    }
+
+    public final boolean enterChunk(final boolean optional) {
+        return enterChunk(0, false, optional);
+    }
+
+    public final boolean enterChunk(final int chunkId, final boolean optional) {
+        return enterChunk(chunkId, true, optional);
+    }
+
+    public final boolean enterChunk(final int chunkId, boolean validateName, boolean optional) {
+        if (chunkId != 0 && validateName) {
             final int nextChunkId = getFirstTag(this.stackDepth);
 
             if (nextChunkId != chunkId) {
@@ -230,7 +242,9 @@ public final class Iff {
             }
         }
 
-        if (!this.inChunk && !isAtEndOfForm() && isCurrentChunk()) {
+        if (!this.inChunk && !isAtEndOfForm() && isCurrentChunk()
+                && (!validateName || getFirstTag(this.stackDepth) == chunkId)) {
+
             final Stack prevStack = this.stack.get(this.stackDepth);
             final Stack nextStack = this.stack.size() <= this.stackDepth + 1 ? new Stack() : this.stack.get(this.stackDepth + 1);
             nextStack.offset = prevStack.offset + prevStack.used + CHUNK_HEADER_SIZE;
@@ -245,7 +259,14 @@ public final class Iff {
 
             ++this.stackDepth;
             this.inChunk = true;
+
+            return true;
         }
+
+        if (!optional)
+            throw new IllegalStateException(String.format("Enter chunk [%s] failed.", Iff.getChunkName(chunkId)));
+
+        return false;
     }
 
     public final void enterForm() {
