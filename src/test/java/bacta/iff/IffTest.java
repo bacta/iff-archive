@@ -21,6 +21,8 @@ public class IffTest {
     private static final int ID_0007 = Iff.createChunkId("0007");
     private static final int ID_SHOT = Iff.createChunkId("SHOT");
 
+    private static final int ID_TEST = Iff.createChunkId("TEST");
+
     private byte[] testBytes;
 
     private final String resourcesPath = IffTest.class.getResource("/").getPath();
@@ -102,5 +104,28 @@ public class IffTest {
                 iff.exitForm(ID_SHOT);
             iff.exitForm(ID_STOT);
         iff.exitForm(ID_SCOT);
+    }
+
+    @Test
+    public void shouldWriteIff() {
+        final Iff iff = new Iff(1024);
+        iff.insertForm(ID_TEST, true);
+        {
+            iff.insertForm(ID_0007, true); //version 7 LOL
+            {
+                iff.insertChunk(ID_XXXX, true);
+                {
+                    iff.insertChunkData("Testing");
+                }
+                iff.exitChunk(ID_XXXX);
+                iff.insertChunk(ID_XXXX, true);
+                {
+                    iff.insertChunkData("Testing2");
+                }
+                iff.exitChunk(ID_XXXX);
+            }
+            iff.exitForm(ID_0007);
+        }
+        iff.exitForm(ID_TEST);
     }
 }

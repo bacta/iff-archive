@@ -1,7 +1,6 @@
 package bacta.iff;
 
 import com.google.common.base.Preconditions;
-import groovy.json.internal.Byt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,7 +18,7 @@ import java.util.List;
  * Created by crush on 12/17/2014.
  */
 public final class Iff {
-    private static final Logger logger = LoggerFactory.getLogger(Iff.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(Iff.class);
 
     public static final int TAG_FORM = createChunkId("FORM");
     public static final int TAG_PROP = createChunkId("PROP");
@@ -29,6 +28,7 @@ public final class Iff {
 
     private static final int CHUNK_HEADER_SIZE = 8;
     private static final int GROUP_HEADER_SIZE = 12;
+    private static final int DEFAULT_STACK_DEPTH = 64;
 
     public static final int createChunkId(final String chunkId) {
         final byte[] bytes = chunkId.getBytes();
@@ -56,10 +56,22 @@ public final class Iff {
     private int stackDepth;
     private boolean inChunk;
 
+    public Iff() {
+        this.data = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN);
+        this.stack = new ArrayList<>(DEFAULT_STACK_DEPTH);
+
+        final Stack rootStack = new Stack();
+        rootStack.offset = 0;
+        rootStack.length = 0;
+        rootStack.used = 0;
+
+        this.stack.add(rootStack);
+    }
+
     public Iff(final String fileName) {
         this.fileName = fileName;
         this.data = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN);
-        this.stack = new ArrayList<>(64);
+        this.stack = new ArrayList<>(DEFAULT_STACK_DEPTH);
         this.stackDepth = 0;
         this.inChunk = false;
 
@@ -74,7 +86,7 @@ public final class Iff {
     public Iff(final String fileName, final byte[] bytes) {
         this.fileName = fileName;
         this.data = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
-        this.stack = new ArrayList<>(64);
+        this.stack = new ArrayList<>(DEFAULT_STACK_DEPTH);
         this.stackDepth = 0;
         this.inChunk = false;
 
@@ -84,6 +96,27 @@ public final class Iff {
         rootStack.used = 0;
 
         this.stack.add(rootStack);
+    }
+
+    /**
+     * Construct an IFF for writing new data.
+     *
+     * @param initialSize Initial size of the Iff data.
+     */
+    public Iff(final int initialSize) {
+        this.data = ByteBuffer.allocate(initialSize).order(ByteOrder.LITTLE_ENDIAN);
+        this.stack = new ArrayList<>(DEFAULT_STACK_DEPTH);
+
+        final Stack rootStack = new Stack();
+        rootStack.offset = 0;
+        rootStack.length = 0;
+        rootStack.used = 0;
+
+        this.stack.add(rootStack);
+    }
+
+    public byte[] getRawData() {
+        return data.array();
     }
 
     public final String getFileName() {
@@ -322,10 +355,13 @@ public final class Iff {
             }
         }
 
+        assert inChunk : "not in chunk";
+
         final Stack prevStack = this.stack.get(this.stackDepth - 1);
         final Stack thisStack = this.stack.get(this.stackDepth);
 
         prevStack.used += thisStack.length + CHUNK_HEADER_SIZE;
+
         --this.stackDepth;
         this.inChunk = false;
     }
@@ -429,7 +465,7 @@ public final class Iff {
         data.putInt(endianSwap32(tagName));
 
         // add the size of the chunk
-        data.putInt(endianSwap32(4));
+        data.putInt(0);
 
         // enter the chunk if requested
         if (shouldEnterChunk)
@@ -482,16 +518,21 @@ public final class Iff {
         assert neededLength >= 0 : ("data size underflow");
         assert data.limit() == data.capacity() : "Buffer limit should not be different than capacity";
 
+        // check if we need to expand the data array
         if (neededLength > data.capacity()) {
-            // check if we need to expand the data array
+            int length = data.capacity();
+
+            if (length <= 0)
+                length = 1;
+
+            // double in size until it supports the needed length
             int newLength;
-            for (newLength = data.capacity() * 2; newLength < neededLength; newLength *= 2) ;
+            for (newLength = length * 2; newLength < neededLength; newLength *= 2) ;
 
             // make sure the iff was growable
 
-            // double in size until it supports the needed length
-            int oldPosition = data.position();
-            ByteBuffer newData = ByteBuffer.allocate(newLength).order(ByteOrder.LITTLE_ENDIAN);
+            final int oldPosition = data.position();
+            final ByteBuffer newData = ByteBuffer.allocate(newLength).order(ByteOrder.LITTLE_ENDIAN);
             newData.put(data.array());
             newData.position(oldPosition);
             data = newData;
@@ -500,15 +541,16 @@ public final class Iff {
         // move data around to either make room or remove data
         final int offset = stack.get(stackDepth).offset + stack.get(stackDepth).used;
         final int lengthToEnd = stack.get(0).length - offset;
+
         if (size > 0) {
             if (lengthToEnd > 0) {
-                byte[] moveArray = new byte[lengthToEnd];
+                final byte[] moveArray = new byte[lengthToEnd];
                 data.get(moveArray, offset, lengthToEnd);
                 data.put(moveArray, offset + size, lengthToEnd);
             }
         } else {
             if (lengthToEnd + size > 0) {
-                byte[] moveArray = new byte[lengthToEnd + size];
+                final byte[] moveArray = new byte[lengthToEnd + size];
                 data.get(moveArray, offset - size, lengthToEnd + size);
                 data.put(moveArray, offset, lengthToEnd + size);
             }
