@@ -1,12 +1,17 @@
 package bacta.iff;
 
+import com.google.common.base.Preconditions;
+import groovy.json.internal.Byt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -16,11 +21,11 @@ import java.util.List;
 public final class Iff {
     private static final Logger logger = LoggerFactory.getLogger(Iff.class);
 
-    public static final int ID_FORM = createChunkId("FORM");
-    public static final int ID_PROP = createChunkId("PROP");
-    public static final int ID_LIST = createChunkId("LIST");
-    public static final int ID_CAT  = createChunkId("CAT ");
-    public static final int ID_FILL = createChunkId("    ");
+    public static final int TAG_FORM = createChunkId("FORM");
+    public static final int TAG_PROP = createChunkId("PROP");
+    public static final int TAG_LIST = createChunkId("LIST");
+    public static final int TAG_CAT = createChunkId("CAT ");
+    public static final int TAG_FILL = createChunkId("    ");
 
     private static final int CHUNK_HEADER_SIZE = 8;
     private static final int GROUP_HEADER_SIZE = 12;
@@ -35,7 +40,7 @@ public final class Iff {
     }
 
     public static final boolean isGroupChunkId(final int id) {
-        return id == ID_FORM || id == ID_LIST || id == ID_CAT;
+        return id == TAG_FORM || id == TAG_LIST || id == TAG_CAT;
     }
 
     private static final int endianSwap32(int val) {
@@ -46,7 +51,7 @@ public final class Iff {
     }
 
     private String fileName;
-    private final ByteBuffer data;
+    private ByteBuffer data;
     private final List<Stack> stack;
     private int stackDepth;
     private boolean inChunk;
@@ -212,7 +217,7 @@ public final class Iff {
         byte[] bytes = new byte[length];
         this.data.get(bytes, chunk.offset + chunk.used, length);
 
-        return new String(bytes, Charset.forName("UTF16LE"));
+        return new String(bytes, Charset.forName("UTF-16LE"));
     }
 
     public final void enterChunk() {
@@ -354,32 +359,261 @@ public final class Iff {
         this.inChunk = false;
     }
 
-    public void insertChunkData(final boolean data) {
+    public void insertForm(int nameTag) {
+        insertForm(nameTag, true);
+    }
+
+    /**
+     * Insert a new form into the Iff at the current location.
+     *
+     * This routine will handle adding a form into the middle of an existing
+     * Iff instance.
+     *
+     * If the Iff is already inside a chunk, this routine will call Fatal for
+     * debug compiles, but will have undefined behavior in release compiles.
+     *
+     * @param nameTag  int for the new form
+     * @param shouldEnterForm  True to automatically enter the form
+     */
+
+    public void insertForm(int nameTag, boolean shouldEnterForm) {
+
+        Preconditions.checkNotNull(data);
+        Preconditions.checkArgument(!inChunk, "inside chunk");
+
+        // make sure the data array can handle this addition
+        adjustDataAsNeeded(GROUP_HEADER_SIZE);
+
+        // add the form header
+        data.putInt(endianSwap32(TAG_FORM));
+
+        // add the size of the form
+        data.putInt(endianSwap32(4));
+
+        // add the real form name
+        data.putInt(endianSwap32(nameTag));
+
+        // enter the form if requested
+        if (shouldEnterForm)
+            enterForm();
+    }
+
+    public void insertChunk(int tagName) {
+        insertChunk(tagName, true);
+    }
+
+    /**
+     * Insert a new chunk into the Iff at the current location.
+     *
+     * This routine will handle adding a chunk into the middle of an existing
+     * Iff instance.
+     *
+     * If the Iff is already inside a chunk, this routine will call Fatal for
+     * debug compiles, but will have undefined behavior in release compiles.
+     *
+     * @param tagName  Name for the new form
+     * @param shouldEnterChunk  True to automatically enter the chunk
+     */
+
+    public void insertChunk(int tagName, boolean shouldEnterChunk) {
+
+        Preconditions.checkNotNull(data);
+        Preconditions.checkArgument(!inChunk, "inside chunk");
+
+        // make sure the data array can handle this addition
+        adjustDataAsNeeded(CHUNK_HEADER_SIZE);
+
+        // compute the offset to start inserting data at
+
+        // add the form header
+        data.putInt(endianSwap32(tagName));
+
+        // add the size of the chunk
+        data.putInt(endianSwap32(4));
+
+        // enter the chunk if requested
+        if (shouldEnterChunk)
+            enterChunk();
+    }
+
+    public boolean write(final String writeFileName) {
+        return write(writeFileName, false);
+    }
+
+    public boolean write(final String writeFileName, boolean optional) {
+        fileName = writeFileName;
+
+        try {
+            Files.write(Paths.get(fileName), data.array());
+            return true;
+        } catch (IOException e) {
+            Preconditions.checkArgument(!optional, String.format("file write failed for %s", fileName));
+            return false;
+        }
+    }
+
+    public void close() {
+        fileName = null;
+        data.clear();  //lint !e672 // possible memory leak in assignment to Iff::data // no, we only delete when we own it
+        stackDepth = 0;
+    }
+
+    /**
+     * Adjust the data array as necessary.
+     *
+     * This routine will check if the data array needs to be expanded to hold
+     * the specified amount of new data.  If it does, and the Iff is not growable,
+     * it will call Fatal in debug compiles, but in release compiles the behavior
+     * is undefined.
+     *
+     * The data array will be doubled in size if it does need to be grown until it
+     * will hold the specified amount of data.
+     *
+     * This routine will also handle size being negative, in which case it will
+     * remove the specified number of bytes from the current location in the Iff.
+     *
+     * @param size  Delta number of bytes
+     */
+
+    public void adjustDataAsNeeded(int size) {
+        // calculate the final required size of the data array
+        final int neededLength = stack.get(0).length + size;
+
+        assert neededLength >= 0 : ("data size underflow");
+        assert data.limit() == data.capacity() : "Buffer limit should not be different than capacity";
+
+        if (neededLength > data.capacity()) {
+            // check if we need to expand the data array
+            int newLength;
+            for (newLength = data.capacity() * 2; newLength < neededLength; newLength *= 2) ;
+
+            // make sure the iff was growable
+
+            // double in size until it supports the needed length
+            int oldPosition = data.position();
+            ByteBuffer newData = ByteBuffer.allocate(newLength).order(ByteOrder.LITTLE_ENDIAN);
+            newData.put(data.array());
+            newData.position(oldPosition);
+            data = newData;
+        }
+
+        // move data around to either make room or remove data
+        final int offset = stack.get(stackDepth).offset + stack.get(stackDepth).used;
+        final int lengthToEnd = stack.get(0).length - offset;
+        if (size > 0) {
+            if (lengthToEnd > 0) {
+                byte[] moveArray = new byte[lengthToEnd];
+                data.get(moveArray, offset, lengthToEnd);
+                data.put(moveArray, offset + size, lengthToEnd);
+            }
+        } else {
+            if (lengthToEnd + size > 0) {
+                byte[] moveArray = new byte[lengthToEnd + size];
+                data.get(moveArray, offset - size, lengthToEnd + size);
+                data.put(moveArray, offset, lengthToEnd + size);
+            }
+        }
+
+        // make sure all the enclosing stack entries know about the changed size
+        for (int i = 0; i <= stackDepth; ++i) {
+            // update the stack's idea of the block length
+            stack.get(i).length += size;
+
+            // the length of level 0 is the file size, so we should not write it
+            if (i != 0) {
+                // update the data's idea of the block length
+                if (i == stackDepth && inChunk) {
+                    data.putInt(stack.get(i).offset - 4, endianSwap32(stack.get(i).length));
+                } else {
+                    // account for forms start beyond the first 4 data bytes, which is their real form name
+                    //stack.get(i).offset = stack.get(i).length + 4;
+                    data.putInt(stack.get(i).offset - 8, endianSwap32(stack.get(i).length + 4));
+                }
+            }
+        }
+
+    }
+
+    /**
+     * Insert data into the current chunk at the current location.
+     *
+     * This routine will handle adding data into the middle of an existing
+     * chunk.  The current position pointer will be moved to the end of
+     * the inserted data.
+     *
+     * If the Iff is not inside a chunk, this routine will call Fatal for
+     * debug compiles, but will have undefined behavior in release compiles.
+     *
+     * @param newData boolean to put into the chunk
+     */
+    public void insertChunkData(final boolean newData) {
         throw new UnsupportedOperationException("Not implemented.");
     }
 
-    public void insertChunkData(final byte data) {
+    public void insertChunkData(final byte newData) {
         throw new UnsupportedOperationException("Not implemented.");
     }
 
-    public void insertChunkData(final short data) {
+    public void insertChunkData(final short newData) {
         throw new UnsupportedOperationException("Not implemented.");
     }
 
-    public void insertChunkData(final int data) {
+    public void insertChunkData(final int newData) {
+
+        Preconditions.checkNotNull(data);
+        Preconditions.checkArgument(inChunk, "not in chunk");
+        Preconditions.checkNotNull(newData);
+
+        // make sure the data array can handle this addition
+        adjustDataAsNeeded(4);
+
+        // compute the offset to start inserting data at
+
+        // add the size of the chunk
+        data.putInt(newData);
+
+        // move the current pointer to the end of the inserted text
+        stack.get(stackDepth).used += 4;
+    }
+
+    public void insertChunkData(final long newData) {
         throw new UnsupportedOperationException("Not implemented.");
     }
 
-    public void insertChunkData(final long data) {
+    public void insertChunkData(final float newData) {
         throw new UnsupportedOperationException("Not implemented.");
     }
 
-    public void insertChunkData(final float data) {
-        throw new UnsupportedOperationException("Not implemented.");
+    public void insertChunkData(final String newData) {
+
+        Preconditions.checkNotNull(data);
+        Preconditions.checkArgument(inChunk, "not in chunk");
+        Preconditions.checkNotNull(newData);
+
+        // make sure the data array can handle this addition
+        adjustDataAsNeeded(newData.length() + 1);
+
+        // compute the offset to start inserting data at
+
+        // add the size of the chunk
+        data.put(newData.getBytes());
+        data.put((byte) 0);
+
+        // move the current pointer to the end of the inserted text
+        stack.get(stackDepth).used += newData.length() + 1;
     }
 
-    public void insertChunkData(final String data) {
-        throw new UnsupportedOperationException("Not implemented.");
+    /**
+     * Insert a string into the current chunk at the current location.
+     *
+     * This routine will call insertChunkData(const void *, int length)
+     * with the string using its string length (plus one for the null
+     * terminator).
+     */
+
+    public void insertChunkString(final String value) {
+        Preconditions.checkNotNull(value);
+        insertChunkData(value);
     }
 
     public final int getBlockName(int depth) {
@@ -413,7 +647,7 @@ public final class Iff {
     }
 
     public final boolean isCurrentForm() {
-        return getFirstTag(this.stackDepth) == ID_FORM;
+        return getFirstTag(this.stackDepth) == TAG_FORM;
     }
 
     public final int getCurrentName() {
