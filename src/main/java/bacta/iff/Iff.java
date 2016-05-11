@@ -119,6 +119,29 @@ public final class Iff {
         return data.array();
     }
 
+    /**
+     * Calculate the number of bytes contained in the raw Iff data buffer.
+     *
+     * @return
+     */
+    public int calculateRawDataSize() {
+        final int length = data.capacity();
+
+        int offset = 0;
+        int blockLength;
+        int tempLength;
+
+        do {
+            //get an int from the current offset + 4
+            tempLength = data.getInt(offset + 4);
+            tempLength = endianSwap32(tempLength);
+            blockLength = tempLength + 4 + 4;
+            offset += blockLength;
+        } while ((offset < length) && blockLength != 0);
+
+        return offset;
+    }
+
     public final String getFileName() {
         return this.fileName;
     }
@@ -228,7 +251,7 @@ public final class Iff {
             if (b == 0)
                 break;
 
-            stringBuilder.append((char)b);
+            stringBuilder.append((char) b);
         }
 
         chunk.used += stringBuilder.length() + 1; //+1 for null byte terminator.
@@ -401,15 +424,15 @@ public final class Iff {
 
     /**
      * Insert a new form into the Iff at the current location.
-     *
+     * <p>
      * This routine will handle adding a form into the middle of an existing
      * Iff instance.
-     *
+     * <p>
      * If the Iff is already inside a chunk, this routine will call Fatal for
      * debug compiles, but will have undefined behavior in release compiles.
      *
-     * @param nameTag  int for the new form
-     * @param shouldEnterForm  True to automatically enter the form
+     * @param nameTag         int for the new form
+     * @param shouldEnterForm True to automatically enter the form
      */
 
     public void insertForm(int nameTag, boolean shouldEnterForm) {
@@ -440,15 +463,15 @@ public final class Iff {
 
     /**
      * Insert a new chunk into the Iff at the current location.
-     *
+     * <p>
      * This routine will handle adding a chunk into the middle of an existing
      * Iff instance.
-     *
+     * <p>
      * If the Iff is already inside a chunk, this routine will call Fatal for
      * debug compiles, but will have undefined behavior in release compiles.
      *
-     * @param tagName  Name for the new form
-     * @param shouldEnterChunk  True to automatically enter the chunk
+     * @param tagName          Name for the new form
+     * @param shouldEnterChunk True to automatically enter the chunk
      */
 
     public void insertChunk(int tagName, boolean shouldEnterChunk) {
@@ -496,19 +519,19 @@ public final class Iff {
 
     /**
      * Adjust the data array as necessary.
-     *
+     * <p>
      * This routine will check if the data array needs to be expanded to hold
      * the specified amount of new data.  If it does, and the Iff is not growable,
      * it will call Fatal in debug compiles, but in release compiles the behavior
      * is undefined.
-     *
+     * <p>
      * The data array will be doubled in size if it does need to be grown until it
      * will hold the specified amount of data.
-     *
+     * <p>
      * This routine will also handle size being negative, in which case it will
      * remove the specified number of bytes from the current location in the Iff.
      *
-     * @param size  Delta number of bytes
+     * @param size Delta number of bytes
      */
 
     public void adjustDataAsNeeded(int size) {
@@ -578,11 +601,11 @@ public final class Iff {
 
     /**
      * Insert data into the current chunk at the current location.
-     *
+     * <p>
      * This routine will handle adding data into the middle of an existing
      * chunk.  The current position pointer will be moved to the end of
      * the inserted data.
-     *
+     * <p>
      * If the Iff is not inside a chunk, this routine will call Fatal for
      * debug compiles, but will have undefined behavior in release compiles.
      *
@@ -647,7 +670,7 @@ public final class Iff {
 
     /**
      * Insert a string into the current chunk at the current location.
-     *
+     * <p>
      * This routine will call insertChunkData(const void *, int length)
      * with the string using its string length (plus one for the null
      * terminator).
@@ -694,6 +717,10 @@ public final class Iff {
 
     public final int getCurrentName() {
         return getBlockName(this.stackDepth);
+    }
+
+    public final int getCurrentLength() {
+        return getLength(this.stackDepth, 0);
     }
 
     public final int getChunkLengthTotal(int elementSize) {
@@ -794,12 +821,37 @@ public final class Iff {
         return seek(chunkId, BlockType.Chunk);
     }
 
-    public final boolean seekWithinChunk(final int chunkId, final SeekType seekType) {
-        throw new UnsupportedOperationException("Not yet implemented.");
+    private void seekWithinChunk(int offset, final SeekType seekType) {
+        switch (seekType) {
+            case Begin:
+                stack.get(stackDepth).used = offset;
+                break;
+
+            case Current:
+                stack.get(stackDepth).used += offset;
+                break;
+
+            case End:
+                stack.get(stackDepth).used = stack.get(stackDepth).length + offset;
+                break;
+        }
     }
 
     private final boolean seek(final int chunkId, final BlockType blockType) {
-        throw new UnsupportedOperationException("Not yet implemented.");
+        assert !inChunk : "in chunk";
+
+        while (!isAtEndOfForm()) {
+            if (getCurrentName() == chunkId
+                    && (blockType == BlockType.Either
+                    || (blockType == BlockType.Form && isCurrentForm()
+                    || (blockType == BlockType.Chunk && isCurrentChunk())))) {
+                return true;
+            }
+
+            stack.get(stackDepth).used += (getLength(stackDepth, 0) + CHUNK_HEADER_SIZE);
+        }
+
+        return false;
     }
 
     private static final class Stack {
@@ -808,13 +860,13 @@ public final class Iff {
         int used;
     }
 
-    public static enum SeekType {
+    public enum SeekType {
         Begin,
         Current,
         End
     }
 
-    public static enum BlockType {
+    public enum BlockType {
         Either,
         Form,
         Chunk
