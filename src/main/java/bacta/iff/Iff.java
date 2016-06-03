@@ -293,16 +293,6 @@ public final class Iff {
     }
 
     public final boolean enterChunk(final int chunkId, boolean validateName, boolean optional) {
-        if (chunkId != 0 && validateName) {
-            final int nextChunkId = getFirstTag(this.stackDepth);
-
-            if (nextChunkId != chunkId) {
-                throw new IllegalArgumentException(String.format("Expected chunk [%s] but found [%s].",
-                        Iff.getChunkName(chunkId),
-                        Iff.getChunkName(nextChunkId)));
-            }
-        }
-
         if (!this.inChunk && !isAtEndOfForm() && isCurrentChunk()
                 && (!validateName || getFirstTag(this.stackDepth) == chunkId)) {
 
@@ -331,21 +321,24 @@ public final class Iff {
     }
 
     public final void enterForm() {
-        enterForm(0);
+        enterForm(0, false, false);
     }
 
     public final void enterForm(final int formId) {
-        if (formId != 0) {
-            final int nextFormId = getSecondTag(this.stackDepth);
+        enterForm(formId, true, false);
+    }
 
-            if (nextFormId != formId) {
-                throw new IllegalArgumentException(String.format("Expected form [%s] but found [%s].",
-                        Iff.getChunkName(formId),
-                        Iff.getChunkName(nextFormId)));
-            }
-        }
+    public final boolean enterForm(final boolean optional) {
+        return enterForm(0, false, optional);
+    }
 
-        if (!this.inChunk && !isAtEndOfForm() && isCurrentForm()) {
+    public final boolean enterForm(final int formId, final boolean optional) {
+        return enterForm(formId, true, optional);
+    }
+
+    private boolean enterForm(final int formId, final boolean validateName, final boolean optional) {
+
+        if (!this.inChunk && !isAtEndOfForm() && isCurrentForm() && (!validateName || getSecondTag(this.stackDepth) == formId)) {
             final Stack prevStack = this.stack.get(this.stackDepth);
             final Stack nextStack = this.stack.size() <= this.stackDepth + 1 ? new Stack() : this.stack.get(this.stackDepth + 1);
             nextStack.offset = prevStack.offset + prevStack.used + GROUP_HEADER_SIZE;
@@ -359,8 +352,17 @@ public final class Iff {
             }
 
             ++this.stackDepth;
-            this.inChunk = false;
+
+            return true;
         }
+
+        if (!optional) {
+            final String msg = String.format("Entering form %s failed.", Iff.getChunkName(formId));
+            LOGGER.info(msg);
+            throw new IllegalStateException(msg);
+        }
+
+        return false;
     }
 
     public final void exitChunk() {
